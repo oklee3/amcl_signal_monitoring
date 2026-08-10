@@ -1,19 +1,27 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
+
+const POLL_INTERVAL_MS = 8000; // ← change polling rate
 
 export default function Home() {
   const [sector, setSector] = useState('');
   const [response, setResponse] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const pollRef = useRef<any>(null);
+
+  // Clean up polling if the component unmounts
+  useEffect(() => () => clearInterval(pollRef.current), []);
 
   async function runWorkflow(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError('');
     setResponse(null);
+
     try {
+      // 1. Trigger the workflow — n8n responds instantly with a jobId
       const res = await fetch('/api/signals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -21,10 +29,33 @@ export default function Home() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Request failed');
-      setResponse(data);
+
+      const { jobId } = data;
+      if (!jobId) {
+        // No jobId? Treat it as a synchronous response (fallback).
+        setResponse(data);
+        setLoading(false);
+        return;
+      }
+
+      // 2. Poll the status endpoint until the results are ready
+      pollRef.current = setInterval(async () => {
+        try {
+          const s = await fetch(`/api/status/${jobId}`);
+          const status = await s.json();
+          if (status.done) {
+            clearInterval(pollRef.current);
+            setResponse(status.results);
+            setLoading(false);
+          }
+        } catch (err: any) {
+          clearInterval(pollRef.current);
+          setError('Lost connection while waiting for results');
+          setLoading(false);
+        }
+      }, POLL_INTERVAL_MS);
     } catch (e: any) {
       setError(e.message);
-    } finally {
       setLoading(false);
     }
   }
@@ -58,6 +89,14 @@ export default function Home() {
           {loading ? 'Analyzing…' : 'Run Analysis'}
         </button>
       </form>
+
+      {/* Loading indicator while polling */}
+      {loading && (
+        <p className="text-gray-600 mb-4">
+          <span className="animate-pulse">●</span> Analyzing "{sector}" — this
+          may take a few minutes…
+        </p>
+      )}
 
       {error && <p className="text-red-600 mb-4">{error}</p>}
 
