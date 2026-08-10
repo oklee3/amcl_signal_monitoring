@@ -42,6 +42,7 @@ export default function Home() {
       pollRef.current = setInterval(async () => {
         try {
           const s = await fetch(`/api/status/${jobId}`);
+          if (!s.ok) return;
           const status = await s.json();
           if (status.done) {
             clearInterval(pollRef.current);
@@ -49,9 +50,7 @@ export default function Home() {
             setLoading(false);
           }
         } catch (err: any) {
-          clearInterval(pollRef.current);
-          setError('Lost connection while waiting for results');
-          setLoading(false);
+          console.error('poll tick failed (retrying):', err);
         }
       }, POLL_INTERVAL_MS);
     } catch (e: any) {
