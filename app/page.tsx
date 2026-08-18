@@ -139,10 +139,9 @@ export default function Home() {
   // Flatten [{ document, signals: [...] }] into a flat array of rows
   const signals = Array.isArray(dataArray)
     ? dataArray.flatMap((doc: any) =>
-        (doc.signals || []).map((s: any) => ({
-          ...s,
-          document: doc.document,
-        }))
+      Array.isArray(doc.signals)                        // ← only map real arrays
+        ? doc.signals.map((s: any) => ({ ...s, document: doc.document }))
+        : []                                            // skip "No signals" docs
       )
     : null;
 
