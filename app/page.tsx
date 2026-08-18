@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 
 const POLL_INTERVAL_MS = 8000; // ← change polling rate
 
-const MOCK_MODE = true; // use preset results for testing
+const MOCK_MODE = false; // use preset results for testing
 const MOCK_RESULTS = [
     {
     "document": "DOCUMENT 1: Untitled (Long Beach Transit FY2027 Budget Book)",
