@@ -1,16 +1,38 @@
+const SKIP = ['eforms', 'jotform', 'pdffiller', 'templateroller', 'formswift', 'template'];
+
 // Search node
 export async function findDocuments(sector: string) {
   const queries = buildQueries(sector);
   const perQuery = await Promise.all(queries.map((v) => searchYouCom(v)));
 
-  // De-duplicate by url
   const seen = new Set<string>();
-  return perQuery.flat().filter((r) => {
-    if (!r.url || seen.has(r.url)) return false;
-    seen.add(r.url);
-    return true;
-  });
+
+  const items = perQuery
+    .flat()                             
+    .filter((x) => x && x.url)
+    .map((x) => ({ ...x, url: x.url.replace(/^http:\/\//, 'https://') }))
+    // drop template/form sites
+    .filter((x) => {
+      const url = x.url.toLowerCase();
+      const text = `${x.title ?? ''} ${x.description ?? x.snippet ?? ''}`.toLowerCase();
+      return !SKIP.some((s) => url.includes(s) || text.includes(s));
+    })
+    // de-duplicate by url
+    .filter((x) => {
+      if (seen.has(x.url)) return false;
+      seen.add(x.url);
+      return true;
+    })
+    .map((x) => ({
+      url: x.url,
+      title: x.title ?? '',
+      description: x.description ?? x.snippet ?? '',
+    }));
+
+  console.log('URLS TO PROCESS:', items.length);
+  return items;
 }
+
 
 // extraction loop
 export async function extractDocuments(searchResults: any[]) {
@@ -78,19 +100,27 @@ export function buildQueries(sector: string): QueryVariant[] {
 
 // access you.com api
 async function searchYouCom(v: QueryVariant) {
-  const res = await fetch(
-    `https://api.ydc-index.io/search?query=${encodeURIComponent(v.query)}`,
-    { method: 'GET', headers: { 'X-API-Key': process.env.YOU_API_KEY! } }
-  );
-  if (!res.ok) throw new Error(`You.com search failed: ${res.status}`);
+  const url = `https://ydc-index.io/v1/search?query=${encodeURIComponent(v.query)}&count=5`;
+
+  const res = await fetch(url, {
+    method: 'GET',
+    headers: { 'X-API-Key': process.env.YDC_API_KEY! },
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`You.com search failed ${res.status}: ${body.slice(0, 200)}`);
+  }
+
   const data = await res.json();
 
-  return (data.hits ?? []).map((r: any) => ({
+  // Web results (news ignored)
+  return (data.results?.web ?? []).map((r: any) => ({
     title: r.title ?? 'Untitled',
     url: r.url,
-    snippet: (r.snippets ?? []).join(' ') || r.description || '',
+    content: r.contents ?? '',
+    description: r.description ?? (r.snippets ?? []).join(' ') ?? '',
     query: v.query,
   }));
 }
-
 
