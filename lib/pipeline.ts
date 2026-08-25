@@ -109,32 +109,46 @@ has no signals, state "No signals" for that document specifically.
 // TEMPORARY MOCK — returns the prompt + document titles instead of calling an LLM.
 // Swap this for a real provider call when ready to spend tokens.
 export async function analyze(prompt: string): Promise<string> {
-  // Pull each document's title back out of the prompt for a quick sanity check
-  const titles = [...prompt.matchAll(/--- DOCUMENT \d+: (.+?) ---/g)].map(
-    (m) => m[1]
-  );
+  const titles = [...prompt.matchAll(/--- DOCUMENT \d+: (.+?) ---/g)].map((m) => m[1]);
 
-  const mockResult = {
-    mock: true,
-    generated_at: new Date().toISOString(),
-    document_count: titles.length,
-    document_titles: titles,
-    prompt_preview: prompt.slice(0, 500) + '...',
-    prompt_length: prompt.length,
-    // Placeholder shape matching what the real LLM will eventually return
-    signals: titles.map((title) => ({
-      title,
-      signal: 'No signals (MOCK — LLM not called)',
-    })),
-  };
+  // Shape it as [{ document, signals: [...] }] so the frontend table renders
+  const mockResults = titles.map((title, i) => ({
+    document: title,
+    signals: i % 2 === 0
+      ? [
+          {
+            title: 'Sample procurement signal (MOCK)',
+            verbatim_quote: 'This is placeholder text — the real LLM is not called yet.',
+            category: 'Budget / Financial review',
+            confidence: 'Low',
+            reasoning: 'Mock signal to verify the table renders end-to-end.',
+            timeframe: 'FY 2026',
+          },
+        ]
+      : 'No signals',   // exercises your "No signals" skip logic too
+  }));
 
-  // Return as a JSON string so parseResults handles it identically to a real response
-  return JSON.stringify(mockResult, null, 2);
+  return JSON.stringify(mockResults, null, 2);
 }
 
 // parse llm response
 export function parseResults(text: string) {
-  // parse final result
+  // Guard: undefined/empty input
+  if (!text || typeof text !== 'string') {
+    return { error: 'analyze returned no text', raw: text ?? null };
+  }
+
+  const clean = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+
+  let parsed: any;
+  try {
+    parsed = JSON.parse(clean);
+  } catch (err) {
+    // ALWAYS return on parse failure
+    return { error: 'Failed to parse JSON', message: String(err), raw: clean.slice(0, 500) };
+  }
+
+  return parsed;
 }
 
 // -----------------------------
@@ -177,6 +191,9 @@ export function buildQueries(sector: string): QueryVariant[] {
 
 // access you.com api
 async function searchYouCom(v: QueryVariant) {
+  console.log('[route] YDC key present?', !!process.env.YDC_API_KEY,
+            'len:', process.env.YDC_API_KEY?.length);
+
   const url = `https://ydc-index.io/v1/search?query=${encodeURIComponent(v.query)}&count=5`;
 
   const res = await fetch(url, {
