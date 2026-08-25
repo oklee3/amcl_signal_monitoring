@@ -7,7 +7,7 @@ async function run() {
 
   const results = await findDocuments(sector);
 
-  console.log(`\n✅ ${results.length} URLs after filtering:\n`);
+  console.log(`\n${results.length} URLs after filtering:\n`);
   results.forEach((r, i) => {
     console.log(`${i + 1}. ${r.title}`);
     console.log(`   ${r.url}`);
