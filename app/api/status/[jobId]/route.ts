@@ -9,16 +9,14 @@ export async function GET(
   const redis = await getRedis();
   const raw = await redis.get(`job:${jobId}`);
 
+  // Key not written yet → job just started, still processing
   if (!raw) {
-    // Key not written yet → pipeline still running
-    return NextResponse.json({ status: 'processing' });
+    return NextResponse.json({ status: 'processing', log: [] });
   }
 
-  const data = JSON.parse(raw);
-  if (data.error) {
-    return NextResponse.json({ status: 'error', error: data.error });
-  }
-  return NextResponse.json({ status: 'done', results: data });
+  // runPipeline already stored { status, log, results? } or { status, log, error? }
+  return NextResponse.json(JSON.parse(raw));
 }
+
 
 
