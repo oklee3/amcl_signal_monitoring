@@ -72,12 +72,15 @@ export async function extractDocuments(
   return usable;
 }
 
+// builds prompt to send to llm
 export function buildPrompt(
   documents: { title: string; url?: string; content: string }[]
 ): string {
-  // Dynamic date — computed at runtime (was hardcoded in n8n)
   const today = new Date().toLocaleDateString('en-US', {
-    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
     timeZone: 'UTC',
   });
 
@@ -92,12 +95,38 @@ new CIO/treasurer hires, asset allocation studies, RFIs, budget line items
 for advisory services, or explicit intent to solicit proposals. Include 
 low-confidence and indirect signals.
 
-For each signal, return JSON: title, verbatim quote, category, confidence 
-(High/Medium/Low), reasoning, and any mentioned timeframe. If a document 
-has no signals, state "No signals" for that document specifically.
+=== OUTPUT FORMAT ===
+Respond with a single JSON object containing one key, "documents", whose value 
+is an array with one entry per document below, in this EXACT structure:
+
+{
+  "documents": [
+    {
+      "document": "<the document title exactly as given>",
+      "signals": [
+        {
+          "title": "<short signal name>",
+          "verbatim_quote": "<exact quote from the document>",
+          "category": "<e.g. Contract expiration, New executive hire, Budget review>",
+          "confidence": "High" | "Medium" | "Low",
+          "reasoning": "<why this indicates a possible upcoming RFP>",
+          "timeframe": "<any mentioned dates/timeframe, or 'Not specified'>"
+        }
+      ]
+    }
+  ]
+}
+
+Rules:
+- Include one object in "documents" for EVERY document below, in order.
+- If a document has no signals, set its "signals" value to the string "No signals".
+- Use verbatim quotes copied exactly from the document text.
+- Do not include markdown, code fences, or any text outside the JSON object.
+
+=== DOCUMENTS ===
+
 `;
 
-  prompt += '=== DOCUMENTS ===\n\n';
   documents.forEach((doc, i) => {
     prompt += `--- DOCUMENT ${i + 1}: ${doc.title || 'Untitled'} ---\n`;
     prompt += `${(doc.content || '(no content)').slice(0, 5000)}\n\n`;
@@ -106,35 +135,48 @@ has no signals, state "No signals" for that document specifically.
   return prompt;
 }
 
-// TEMPORARY MOCK — returns the prompt + document titles instead of calling an LLM.
-// Swap this for a real provider call when ready to spend tokens.
+// call 4o-mini to parse pdf results
 export async function analyze(prompt: string): Promise<string> {
-  const titles = [...prompt.matchAll(/--- DOCUMENT \d+: (.+?) ---/g)].map((m) => m[1]);
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are a precise public-sector procurement analyst. Respond ONLY with valid JSON matching the requested structure — no markdown, no commentary.',
+        },
+        { role: 'user', content: prompt },
+      ],
+      temperature: 0.2,                         
+      response_format: { type: 'json_object' },  // ← forces valid JSON
+    }),
+  });
 
-  // Shape it as [{ document, signals: [...] }] so the frontend table renders
-  const mockResults = titles.map((title, i) => ({
-    document: title,
-    signals: i % 2 === 0
-      ? [
-          {
-            title: 'Sample procurement signal (MOCK)',
-            verbatim_quote: 'This is placeholder text — the real LLM is not called yet.',
-            category: 'Budget / Financial review',
-            confidence: 'Low',
-            reasoning: 'Mock signal to verify the table renders end-to-end.',
-            timeframe: 'FY 2026',
-          },
-        ]
-      : 'No signals',   // exercises your "No signals" skip logic too
-  }));
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`OpenAI call failed ${res.status}: ${body.slice(0, 300)}`);
+  }
 
-  return JSON.stringify(mockResults, null, 2);
+  const data = await res.json();
+  const text = data.choices?.[0]?.message?.content;
+
+  if (!text) {
+    throw new Error(`OpenAI returned no content: ${JSON.stringify(data).slice(0, 300)}`);
+  }
+
+  return text;
 }
+
 
 // parse llm response
 export function parseResults(text: string) {
-  // Guard: undefined/empty input
-  if (!text || typeof text !== 'string') {
+  if (!text || typeof text !== 'string' || text.trim().length === 0) {
     return { error: 'analyze returned no text', raw: text ?? null };
   }
 
@@ -144,8 +186,12 @@ export function parseResults(text: string) {
   try {
     parsed = JSON.parse(clean);
   } catch (err) {
-    // ALWAYS return on parse failure
+    // return on parse failure
     return { error: 'Failed to parse JSON', message: String(err), raw: clean.slice(0, 500) };
+  }
+
+  if (!Array.isArray(parsed)) {
+    parsed = parsed.documents ?? parsed.results ?? parsed.signals ?? parsed;
   }
 
   return parsed;

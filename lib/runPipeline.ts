@@ -10,9 +10,8 @@ export async function runPipeline(jobId: string, sector: string) {
   const key = `job:${jobId}`;
   const log: string[] = [];
 
-  // Helper: append a timestamped message and write current progress to Redis
   const step = async (message: string) => {
-    const ts = new Date().toISOString().slice(11, 19); // HH:MM:SS
+    const ts = new Date().toISOString().slice(11, 19);
     log.push(`[${ts}] ${message}`);
     await redis.set(key, JSON.stringify({ status: 'processing', log }), { EX: 3600 });
   };
@@ -37,11 +36,20 @@ export async function runPipeline(jobId: string, sector: string) {
     const results = parseResults(text);
     console.log('5. parseResults:', typeof results);
 
-    // Final write: status 'done', include the full log AND the results
+    const resultsWithUrls = Array.isArray(results)
+      ? results.map((doc: any, i: number) => ({
+          ...doc,
+          url: documents[i]?.url ?? null,
+        }))
+      : results;
+
+    console.log('6. attached URLs:', Array.isArray(resultsWithUrls));
+
+    // Final write: use resultsWithUrls instead of results
     await step('Done.');
     await redis.set(
       key,
-      JSON.stringify({ status: 'done', log, results }),
+      JSON.stringify({ status: 'done', log, results: resultsWithUrls }),
       { EX: 3600 }
     );
   } catch (err) {

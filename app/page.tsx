@@ -80,7 +80,7 @@ export default function Home() {
   const signals = Array.isArray(dataArray)
     ? dataArray.flatMap((doc: any) =>
         Array.isArray(doc.signals)
-          ? doc.signals.map((s: any) => ({ ...s, document: doc.document }))
+          ? doc.signals.map((s: any) => ({ ...s, document: doc.document, url: doc.url, }))
           : []
       )
     : null;
@@ -202,9 +202,19 @@ export default function Home() {
                     <h3 className="font-semibold text-slate-900">
                       {s.title || 'Untitled signal'}
                     </h3>
-                    <p className="text-sm text-slate-400 mt-0.5">
-                      {s.document || '—'}
-                    </p>
+                    {s.url ? (
+                      <a
+                        href={s.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sm text-blue-600 hover:underline mt-0.5 inline-flex items-center gap-1"
+                      >
+                        {s.document || 'View source document'}
+                        <span aria-hidden>↗</span>
+                      </a>
+                    ) : (
+                      <p className="text-sm text-slate-400 mt-0.5">{s.document || '—'}</p>
+                    )}
                   </div>
                   <span
                     className={`shrink-0 inline-flex items-center rounded-full px-3 py-1 text-xs font-medium ring-1 ring-inset ${confidenceStyle(
